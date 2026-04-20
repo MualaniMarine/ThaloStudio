@@ -3,12 +3,12 @@ import QRCode from 'qrcode'
 import jsQR from 'jsqr'
 
 const PREFIX = '323232323232#'
-const FIELDS = ['小时', '分钟', '白光', '蓝光', '绿光', '紫光', '浅蓝', '红光']
-const LIGHT_FIELDS = ['白光', '蓝光', '绿光', '紫光', '浅蓝', '红光']
+const FIELDS = ['小时', '分钟', '白光', '深蓝光', '绿色光', 'UV', '浅蓝光', '红色光']
+const LIGHT_FIELDS = ['白光', '深蓝光', '绿色光', 'UV', '浅蓝光', '红色光']
 const LIMITS = {
   '小时': [0, 23], '分钟': [0, 59],
-  '白光': [0, 100], '蓝光': [0, 100], '绿光': [0, 100],
-  '紫光': [0, 100], '浅蓝': [0, 100], '红光': [0, 100]
+  '白光': [0, 100], '深蓝光': [0, 100], '绿色光': [0, 100],
+  'UV': [0, 100], '浅蓝光': [0, 100], '红色光': [0, 100]
 }
 const DEFAULT_GROUPS = [
   "0000000000000000","0100000000000000","0200000000000000","0300000000000000",
@@ -18,13 +18,31 @@ const DEFAULT_GROUPS = [
   "10001e5a5a465a14","11001e5a5a465a14","12001e5a5a465a14","13000a2828282805",
   "1400051414141400","1500000000000000","1600000000000000","1700000000000000",
 ]
+const SPS_GROUPS = [
+  "0000000000000000","0100000000000000","0200000000000000","0300000000000000",
+  "0400000000000000","0500000000000000","0600000000000000","0700000000000000",
+  "0800000000000000","09001e1e1e1e1e1e","0a00323232323232","0b005f5f5f5f5f5f",
+  "0c005f5f5f5f5f5f","0d005f5f5f5f5f5f","0e005f5f5f5f5f5f","0f005f5f5f5f5f5f",
+  "10005f5f5f5f5f5f","11005f5f5f5f5f5f","12005f5f5f5f5f5f","1300323232323232",
+  "14001e1e1e1e1e1e","1500000000000000","1600000000000000","1700000000000000",
+]
+
+const LPS_GROUPS = [
+  "0000000000000000","0100000000000000","0200000000000000","0300000000000000",
+  "0400000000000000","0500000000000000","0600000000000000","0700000000000000",
+  "0800000000000000","0900000a00030a00","0a00011e14051e00","0b000550320a5000",
+  "0c000550320a5000","0d000550320a5000","0e000550320a5000","0f000550320a5000",
+  "10000550320a5000","11000550320a5000","12000550320a5000","1300011e14051e00",
+  "1400000a00030a00","1500000000000000","1600000000000000","1700000000000000",
+]
+
 const COLORS = {
   '白光': ['#e2e8f0', '#cbd5e1'],
-  '蓝光': ['#dbeafe', '#60a5fa'],
-  '绿光': ['#dcfce7', '#4ade80'],
-  '紫光': ['#ede9fe', '#a78bfa'],
-  '浅蓝': ['#cffafe', '#22d3ee'],
-  '红光': ['#fee2e2', '#f87171'],
+  '深蓝光': ['#dbeafe', '#60a5fa'],
+  '绿色光': ['#dcfce7', '#4ade80'],
+  'UV': ['#ede9fe', '#a78bfa'],
+  '浅蓝光': ['#cffafe', '#22d3ee'],
+  '红色光': ['#fee2e2', '#f87171'],
 }
 
 const state = { rows: [], qrVisible: true, decimalVisible: false }
@@ -66,17 +84,17 @@ app.innerHTML = `
                 <th class="group-neutral">分钟</th>
                 <th class="group-neutral">向下复制</th>
                 <th class="group-white">白光</th>
-                <th class="group-blue">蓝光</th>
-                <th class="group-green">绿光</th>
-                <th class="group-violet">紫光</th>
-                <th class="group-cyan">浅蓝</th>
-                <th class="group-red">红光</th>
+                <th class="group-blue">深蓝光</th>
+                <th class="group-green">绿色光</th>
+                <th class="group-violet">UV</th>
+                <th class="group-cyan">浅蓝光</th>
+                <th class="group-red">红色光</th>
                 <th class="group-white decimal-col hidden-col" data-decimal-col>白光值</th>
-                <th class="group-blue decimal-col hidden-col" data-decimal-col>蓝光值</th>
-                <th class="group-green decimal-col hidden-col" data-decimal-col>绿光值</th>
-                <th class="group-violet decimal-col hidden-col" data-decimal-col>紫光值</th>
-                <th class="group-cyan decimal-col hidden-col" data-decimal-col>浅蓝值</th>
-                <th class="group-red decimal-col hidden-col" data-decimal-col>红光值</th>
+                <th class="group-blue decimal-col hidden-col" data-decimal-col>深蓝光值</th>
+                <th class="group-green decimal-col hidden-col" data-decimal-col>绿色光值</th>
+                <th class="group-violet decimal-col hidden-col" data-decimal-col>UV值</th>
+                <th class="group-cyan decimal-col hidden-col" data-decimal-col>浅蓝光值</th>
+                <th class="group-red decimal-col hidden-col" data-decimal-col>红色光值</th>
               </tr>
             </thead>
             <tbody id="rows"></tbody>
@@ -117,15 +135,17 @@ app.innerHTML = `
           <div class="card-sub">导入、导出、预览开关和快捷操作</div>
         </div>
         <div class="card-body">
-          <div class="toolbar-row">
-            <button id="btnDefault">载入默认示例</button>
-            <button id="btnImportRaw">从原始串导入</button>
-            <label class="file-label">从二维码图片导入<input id="qrFile" type="file" accept="image/*" /></label>
-            <button id="btnToggleQr">显示/隐藏二维码区</button>
-            <button id="btnToggleDecimal">显示/隐藏十进制输入</button>
+          <div class="toolbar-grid">
+            <button id="btnDefault">应用SPS/LPS</button>
+            <button id="btnSps">应用 SPS</button>
+            <button id="btnLps">应用 LPS</button>
             <button id="btnRefresh">刷新合成数据</button>
-            <button id="btnSaveQr">保存二维码 PNG</button>
+            <button id="btnImportRaw">从原始串导入</button>
+            <label class="file-label toolbar-btn">从二维码图片导入<input id="qrFile" type="file" accept="image/*" /></label>
             <button id="btnCopyRaw">复制原始串</button>
+            <button id="btnSaveQr">保存二维码 PNG</button>
+            <button id="btnToggleDecimal">显示/隐藏输入</button>
+            <button id="btnToggleQr">显示/隐藏二维码区</button>
           </div>
           <div class="status" id="status">已就绪</div>
         </div>
@@ -566,6 +586,13 @@ function refreshAll() {
   generateQr()
 }
 
+function applyPreset(groups, name) {
+  groups.forEach((g, i) => setRowFromGroup(i, g))
+  refreshAll()
+  renderTrendChart()
+  setStatus(`已应用 ${name} 预设`)
+}
+
 function loadDefaultData() {
   DEFAULT_GROUPS.forEach((g, i) => setRowFromGroup(i, g))
   refreshAll()
@@ -575,6 +602,8 @@ function loadDefaultData() {
 
 function wireActions() {
   document.getElementById('btnDefault').onclick = loadDefaultData
+  document.getElementById('btnSps').onclick = () => applyPreset(SPS_GROUPS, 'SPS')
+  document.getElementById('btnLps').onclick = () => applyPreset(LPS_GROUPS, 'LPS')
   document.getElementById('btnImportRaw').onclick = () => {
     const raw = prompt('请粘贴完整原始串：', cleanText(document.getElementById('rawBox').value) || PREFIX)
     if (raw != null) {
