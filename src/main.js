@@ -6,6 +6,7 @@ const FIELDS = ['小时', '分钟', '白光', '深蓝光', '绿色光', 'UV', '�
 const LIGHT_FIELDS = ['白光', '深蓝光', '绿色光', 'UV', '浅蓝光', '红色光']
 const DEFAULT_MANUAL_HEADER = '323232323232'
 const SUN_PROFILE_STORAGE_KEY = 'np-web-sun-profiles-v1'
+const LIGHTING_SCHEME_STORAGE_KEY = 'np-web-lighting-schemes-v1'
 const LIMITS = {
   '小时': [0, 23], '分钟': [0, 59],
   '白光': [0, 100], '深蓝光': [0, 100], '绿色光': [0, 100],
@@ -54,6 +55,7 @@ const state = {
   manualHeader: DEFAULT_MANUAL_HEADER,
   headerInputs: {},
   sunTimes: null,
+  suspendLightingSchemeReset: false,
 }
 
 const app = document.getElementById('app')
@@ -156,9 +158,6 @@ app.innerHTML = `
         </div>
         <div class="card-body">
           <div class="toolbar-grid">
-            <button id="btnDefault">应用SPS/LPS</button>
-            <button id="btnSps">应用 SPS</button>
-            <button id="btnLps">应用 LPS</button>
             <button id="btnRefresh">刷新合成数据</button>
             <button id="btnImportRaw">从原始串/设备报文导入</button>
             <label class="file-label toolbar-btn">从二维码图片导入<input id="qrFile" type="file" accept="image/*" /></label>
@@ -169,6 +168,34 @@ app.innerHTML = `
             <button id="btnToggleRaw">显示/隐藏原始串</button>
           </div>
           <div class="status" id="status">已就绪</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">照明参数方案</div>
+          <div class="card-sub">可直接应用内置方案，也可把当前 24 组照明参数保存为本地方案</div>
+        </div>
+        <div class="card-body">
+          <div class="toolbar-row sun-actions">
+            <button id="btnDefault">应用SPS/LPS</button>
+            <button id="btnSps">应用 SPS</button>
+            <button id="btnLps">应用 LPS</button>
+          </div>
+          <div class="sun-grid sun-grid-3">
+            <label class="sun-item sun-item-wide">
+              <span>本地方案</span>
+              <select id="lightingSchemeSelect" class="sun-input"></select>
+            </label>
+            <label class="sun-item">
+              <span>方案名称</span>
+              <input id="lightingSchemeName" class="sun-input" type="text" placeholder="如 我的SPS黄昏版" />
+            </label>
+          </div>
+          <div class="toolbar-row sun-actions">
+            <button id="btnSaveLightingScheme">保存当前方案</button>
+            <button id="btnDeleteLightingScheme">删除当前方案</button>
+          </div>
         </div>
       </div>
 
@@ -302,6 +329,18 @@ function getSunProfiles() {
 }
 function setSunProfiles(list) {
   localStorage.setItem(SUN_PROFILE_STORAGE_KEY, JSON.stringify(list))
+}
+function getLightingSchemes() {
+  try {
+    const raw = localStorage.getItem(LIGHTING_SCHEME_STORAGE_KEY)
+    const list = JSON.parse(raw || '[]')
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+function setLightingSchemes(list) {
+  localStorage.setItem(LIGHTING_SCHEME_STORAGE_KEY, JSON.stringify(list))
 }
 function parseCoordinate(text, kind) {
   const raw = cleanText(text).toUpperCase()
@@ -505,6 +544,24 @@ function renderSunProfileOptions() {
     select.appendChild(option)
   })
 }
+function renderLightingSchemeOptions() {
+  const select = document.getElementById('lightingSchemeSelect')
+  if (!select) return
+  const schemes = getLightingSchemes()
+  select.innerHTML = '<option value="">未选择本地方案</option>'
+  schemes.forEach((scheme, index) => {
+    const option = document.createElement('option')
+    option.value = String(index)
+    option.textContent = scheme.name
+    select.appendChild(option)
+  })
+}
+function clearLightingSchemeSelectionIfNeeded() {
+  if (state.suspendLightingSchemeReset) return
+  const select = document.getElementById('lightingSchemeSelect')
+  if (!select || !select.value) return
+  select.value = ''
+}
 function fillSunFormFromProfile(profile) {
   document.getElementById('sunProfileName').value = profile.name || ''
   document.getElementById('sunriseTime').value = formatMinutes(profile.sunrise)
@@ -514,6 +571,26 @@ function fillSunFormFromProfile(profile) {
   document.getElementById('sunTimezone').value = profile.timezoneText || getBrowserTimezoneOffsetText()
   state.sunTimes = { sunrise: profile.sunrise, sunset: profile.sunset }
   updateSunInfo(`已载入预设：${profile.name} | ${document.getElementById('sunTimezone').value} 开灯 ${formatMinutes(profile.sunrise)} | 关灯 ${formatMinutes(profile.sunset)}`)
+}
+function captureCurrentLightingScheme(name) {
+  return {
+    name,
+    manualHeader: state.manualHeader,
+    groups: state.rows.map((row) => composeGroup(FIELDS.map((field) => row.values[field]))),
+  }
+}
+function applyLightingSchemeData(scheme, label = scheme.name) {
+  if (!scheme?.manualHeader || !Array.isArray(scheme.groups) || scheme.groups.length !== 24) {
+    throw new Error('本地方案数据不完整')
+  }
+  state.suspendLightingSchemeReset = true
+  state.manualHeader = normalizeManualHeader(scheme.manualHeader)
+  syncManualHeaderInputs(state.manualHeader)
+  scheme.groups.forEach((group, index) => setRowFromGroup(index, group))
+  refreshAll()
+  state.suspendLightingSchemeReset = false
+  renderTrendChart()
+  setStatus(`已应用 ${label} 方案`)
 }
 
 function readSunTimesFromForm() {
@@ -569,6 +646,33 @@ function deleteSelectedSunProfile() {
   renderSunProfileOptions()
   document.getElementById('sunProfileName').value = ''
   setStatus(`已删除预设：${removed.name}`)
+}
+function saveCurrentLightingScheme() {
+  const name = cleanText(document.getElementById('lightingSchemeName').value)
+  if (!name) throw new Error('请先填写方案名称')
+  const schemes = getLightingSchemes().filter((item) => item.name !== name)
+  schemes.unshift(captureCurrentLightingScheme(name))
+  setLightingSchemes(schemes.slice(0, 20))
+  renderLightingSchemeOptions()
+  document.getElementById('lightingSchemeSelect').value = '0'
+  setStatus(`已保存照明参数方案：${name}`)
+}
+function loadSelectedLightingScheme() {
+  const index = Number.parseInt(document.getElementById('lightingSchemeSelect').value, 10)
+  const schemes = getLightingSchemes()
+  if (!Number.isInteger(index) || index < 0 || index >= schemes.length) throw new Error('请先选择本地方案')
+  document.getElementById('lightingSchemeName').value = schemes[index].name
+  applyLightingSchemeData(schemes[index], schemes[index].name)
+}
+function deleteSelectedLightingScheme() {
+  const index = Number.parseInt(document.getElementById('lightingSchemeSelect').value, 10)
+  const schemes = getLightingSchemes()
+  if (!Number.isInteger(index) || index < 0 || index >= schemes.length) throw new Error('请先选择本地方案')
+  const [removed] = schemes.splice(index, 1)
+  setLightingSchemes(schemes)
+  renderLightingSchemeOptions()
+  document.getElementById('lightingSchemeName').value = ''
+  setStatus(`已删除照明参数方案：${removed.name}`)
 }
 
 function getRowTotalMinutes(row, index) {
@@ -927,6 +1031,7 @@ function copyToNextRow(r) {
 }
 
 function updateRawText() {
+  clearLightingSchemeSelectionIfNeeded()
   const groups = state.rows.map(r => r.composeInput.value.trim().toLowerCase())
   const raw = `${state.manualHeader}#${groups.join('')}`
   document.getElementById('rawBox').value = raw
@@ -1049,10 +1154,7 @@ function refreshAll() {
 }
 
 function applyPreset(groups, name) {
-  groups.forEach((g, i) => setRowFromGroup(i, g))
-  refreshAll()
-  renderTrendChart()
-  setStatus(`已应用 ${name} 预设`)
+  applyLightingSchemeData({ manualHeader: state.manualHeader, groups }, name)
 }
 
 function loadDefaultData() {
@@ -1067,6 +1169,16 @@ function wireActions() {
   document.getElementById('sunsetTime').value = '18:00'
   document.getElementById('sunTimezone').value = getBrowserTimezoneOffsetText()
   renderSunProfileOptions()
+  renderLightingSchemeOptions()
+  document.getElementById('lightingSchemeSelect').addEventListener('change', () => {
+    const value = document.getElementById('lightingSchemeSelect').value
+    if (!value) return
+    try {
+      loadSelectedLightingScheme()
+    } catch (e) {
+      setStatus(e.message)
+    }
+  })
   document.getElementById('sunProfileSelect').addEventListener('change', () => {
     const value = document.getElementById('sunProfileSelect').value
     if (!value) return
@@ -1079,6 +1191,20 @@ function wireActions() {
   document.getElementById('btnDefault').onclick = loadDefaultData
   document.getElementById('btnSps').onclick = () => applyPreset(SPS_GROUPS, 'SPS')
   document.getElementById('btnLps').onclick = () => applyPreset(LPS_GROUPS, 'LPS')
+  document.getElementById('btnSaveLightingScheme').onclick = () => {
+    try {
+      saveCurrentLightingScheme()
+    } catch (e) {
+      setStatus(e.message)
+    }
+  }
+  document.getElementById('btnDeleteLightingScheme').onclick = () => {
+    try {
+      deleteSelectedLightingScheme()
+    } catch (e) {
+      setStatus(e.message)
+    }
+  }
   document.getElementById('btnImportRaw').onclick = () => {
     const raw = prompt('请粘贴完整原始串或设备报文：', cleanText(document.getElementById('rawBox').value) || `${state.manualHeader}#`)
     if (raw != null) {
