@@ -229,11 +229,11 @@ app.innerHTML = `
       <div class="card footer-card">
         <div class="card-body footer-body">
           <div class="footer-line"><strong>Author:</strong> OpenAI ChatGPT · GPT-5.4 Thinking</div>
-          <div class="footer-line"><strong>Creator:</strong> <a href="https://github.com/MisakaAldrich/Noo-Psyche-Seawater-Coral-Light-VisualizationTool" target="_blank" rel="noopener noreferrer">https://github.com/MisakaAldrich/Noo-Psyche-Seawater-Coral-Light-VisualizationTool</a></div>
+          <div class="footer-line"><strong>Creator:</strong> <a href="https://github.com/MualaniMarine/Noo-Psyche-Seawater-Coral-Light-VisualizationTool" target="_blank" rel="noopener noreferrer">https://github.com/MualaniMarine/Noo-Psyche-Seawater-Coral-Light-VisualizationTool</a></div>
           <div class="footer-line"><strong>Official Website:</strong> <a href="https://www.noo-psyche.com/" target="_blank" rel="noopener noreferrer">https://www.noo-psyche.com/</a></div>
           <div class="footer-line"><strong>Copyright:</strong> © 2026 All rights reserved.</div>
           <div class="footer-line">“Noo-Psyche”及其相关名称、标识、品牌识别元素，为佛山纽斯科技有限公司及其相关权利人所拥有、使用或主张权利的品牌名称、商标、商号或相关商业标识。</div>
-          <div class="footer-line">本项目为便捷使用与兼容性目的制作的非官方可视化/编辑工具页面；除非相关权利人另有明确声明，否则不代表官方网站、官方应用或官方背书产品。</div>
+          <div class="footer-line">本项目为便捷使用与兼容性目的制作的非官方可视化编辑工具页面；除非相关权利人另有明确声明，否则不代表官方网站、官方应用或官方背书产品。</div>
         </div>
       </div>
 
@@ -400,7 +400,7 @@ function normalizeImportedSunProfiles(payload) {
     if (!name) throw new Error('日出日落预设缺少名称')
     const sunrise = clamp(item?.sunrise, 0, 1439)
     const sunset = clamp(item?.sunset, 0, 1439)
-    if (sunrise >= sunset) throw new Error(`日出日落预设“${name}”的时间范围无效`)
+    if (sunrise === sunset) throw new Error(`日出日落预设“${name}”的开灯和关灯时间不能相同`)
     const timezoneText = cleanText(item?.timezoneText || getBrowserTimezoneOffsetText())
     parseTimezoneOffset(timezoneText)
     return {
@@ -669,7 +669,7 @@ function readSunTimesFromForm() {
   const sunset = parseTimeInput(document.getElementById('sunsetTime').value)
   const timezoneText = cleanText(document.getElementById('sunTimezone').value)
   parseTimezoneOffset(timezoneText)
-  if (sunrise >= sunset) throw new Error('日出时间必须早于日落时间')
+  if (sunrise === sunset) throw new Error('开灯和关灯时间不能相同')
   const times = { sunrise, sunset }
   state.sunTimes = times
   updateSunInfo(`${timezoneText} 日出 ${formatMinutes(times.sunrise)} | 日落 ${formatMinutes(times.sunset)}`)
@@ -807,31 +807,56 @@ function sampleProfile(rows, sourceIndex) {
   return sampled
 }
 
-function findActiveRange() {
+function getOrderedActiveIndexes() {
   const activeIndexes = state.rows
     .map((row, idx) => ({ row, idx }))
     .filter(({ row }) => LIGHT_FIELDS.some((field) => Number(row.values[field] || 0) > 0))
     .map(({ idx }) => idx)
   if (!activeIndexes.length) throw new Error('当前方案没有非零亮度区间')
-  return [activeIndexes[0], activeIndexes[activeIndexes.length - 1]]
+
+  let largestGap = -1
+  let startOffset = 0
+  for (let i = 0; i < activeIndexes.length; i++) {
+    const current = activeIndexes[i]
+    const next = i === activeIndexes.length - 1 ? activeIndexes[0] + 24 : activeIndexes[i + 1]
+    const gap = next - current - 1
+    if (gap > largestGap) {
+      largestGap = gap
+      startOffset = (i + 1) % activeIndexes.length
+    }
+  }
+
+  return activeIndexes.map((_, offset) => activeIndexes[(startOffset + offset) % activeIndexes.length])
+}
+
+function getActiveProfileRows() {
+  return getOrderedActiveIndexes().map((idx) => {
+    const values = {}
+    for (const field of LIGHT_FIELDS) values[field] = Number(state.rows[idx].values[field] || 0)
+    return values
+  })
+}
+
+function buildHourWindow(startHour, endHour) {
+  const hours = []
+  let current = startHour
+  while (current !== endHour) {
+    hours.push(current)
+    current = (current + 1) % 24
+    if (hours.length > 24) throw new Error('开灯和关灯时间区间无效')
+  }
+  if (!hours.length) hours.push(startHour)
+  return hours
 }
 
 function applySunAlignment() {
   const times = readSunTimesFromForm()
-  if (times.sunrise >= times.sunset) throw new Error('当前仅支持“日出到日落”的白天方案')
-  const [startIdx, endIdx] = findActiveRange()
-  const activeRows = state.rows.slice(startIdx, endIdx + 1).map((row) => {
-    const values = {}
-    for (const field of LIGHT_FIELDS) values[field] = Number(row.values[field] || 0)
-    return values
-  })
+  const activeRows = getActiveProfileRows()
 
   const targetStartHour = Math.floor(times.sunrise / 60)
   const targetEndHour = Math.floor(times.sunset / 60)
-  if (targetEndHour < targetStartHour) throw new Error('日出日落小时区间无效')
-
-  const lastLitHour = Math.max(targetStartHour, targetEndHour - 1)
-  const targetSpan = Math.max(0, lastLitHour - targetStartHour)
+  const litHours = buildHourWindow(targetStartHour, targetEndHour)
+  const targetSpan = Math.max(0, litHours.length - 1)
   const sourceSpan = Math.max(1, activeRows.length - 1)
 
   state.rows.forEach((row, idx) => {
@@ -841,15 +866,15 @@ function applySunAlignment() {
       row.sliders[field].setValue(0, false)
       row.decimalInputs[field].value = 0
     }
+  })
 
-    if (idx < targetStartHour || idx > lastLitHour) return
-
-    const ratio = targetSpan === 0 ? 0 : (idx - targetStartHour) / targetSpan
+  litHours.forEach((hour, index) => {
+    const ratio = targetSpan === 0 ? 0 : index / targetSpan
     const sampled = sampleProfile(activeRows, ratio * sourceSpan)
     for (const field of LIGHT_FIELDS) {
-      row.values[field] = sampled[field]
-      row.sliders[field].setValue(sampled[field], false)
-      row.decimalInputs[field].value = sampled[field]
+      state.rows[hour].values[field] = sampled[field]
+      state.rows[hour].sliders[field].setValue(sampled[field], false)
+      state.rows[hour].decimalInputs[field].value = sampled[field]
     }
   })
 
