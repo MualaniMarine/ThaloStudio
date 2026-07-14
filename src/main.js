@@ -229,7 +229,7 @@ app.innerHTML = `
       <div class="card footer-card">
         <div class="card-body footer-body">
           <div class="footer-line"><strong>Author:</strong> OpenAI ChatGPT · GPT-5.4 Thinking</div>
-          <div class="footer-line"><strong>Creator:</strong> <a href="https://github.com/MualaniMarine/Noo-Psyche-Seawater-Coral-Light-VisualizationTool" target="_blank" rel="noopener noreferrer">https://github.com/MualaniMarine/Noo-Psyche-Seawater-Coral-Light-VisualizationTool</a></div>
+          <div class="footer-line"><strong>Creator:</strong> <a href="https://github.com/MualaniMarine/ThaloStudio" target="_blank" rel="noopener noreferrer">https://github.com/MualaniMarine/ThaloStudio</a></div>
           <div class="footer-line"><strong>Official Website:</strong> <a href="https://www.noo-psyche.com/" target="_blank" rel="noopener noreferrer">https://www.noo-psyche.com/</a></div>
           <div class="footer-line"><strong>Copyright:</strong> © 2026 All rights reserved.</div>
           <div class="footer-line">“Noo-Psyche”及其相关名称、标识、品牌识别元素，为佛山纽斯科技有限公司及其相关权利人所拥有、使用或主张权利的品牌名称、商标、商号或相关商业标识。</div>
@@ -856,7 +856,10 @@ function applySunAlignment() {
   const targetStartHour = Math.floor(times.sunrise / 60)
   const targetEndHour = Math.floor(times.sunset / 60)
   const litHours = buildHourWindow(targetStartHour, targetEndHour)
-  const targetSpan = Math.max(0, litHours.length - 1)
+  // The endpoints are always off. Sampling only the hours between them keeps
+  // reapplying the same sunrise/sunset settings idempotent.
+  const curveHours = litHours.slice(1)
+  const targetSpan = Math.max(0, curveHours.length - 1)
   const sourceSpan = Math.max(1, activeRows.length - 1)
 
   state.rows.forEach((row, idx) => {
@@ -868,7 +871,7 @@ function applySunAlignment() {
     }
   })
 
-  litHours.forEach((hour, index) => {
+  curveHours.forEach((hour, index) => {
     const ratio = targetSpan === 0 ? 0 : index / targetSpan
     const sampled = sampleProfile(activeRows, ratio * sourceSpan)
     for (const field of LIGHT_FIELDS) {
@@ -881,6 +884,9 @@ function applySunAlignment() {
   state.rows[targetStartHour].minuteInput.value = String(times.sunrise % 60)
   state.rows[targetEndHour].minuteInput.value = String(times.sunset % 60)
   for (const field of LIGHT_FIELDS) {
+    state.rows[targetStartHour].values[field] = 0
+    state.rows[targetStartHour].sliders[field].setValue(0, false)
+    state.rows[targetStartHour].decimalInputs[field].value = 0
     state.rows[targetEndHour].values[field] = 0
     state.rows[targetEndHour].sliders[field].setValue(0, false)
     state.rows[targetEndHour].decimalInputs[field].value = 0
